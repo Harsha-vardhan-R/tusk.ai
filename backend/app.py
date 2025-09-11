@@ -6,9 +6,9 @@ app = Flask(__name__)
 def home():
     return "🚀 Flask server is running on port 5000!"
 
-@app.route('/health')
-def health():
-    return jsonify({"status": "ok"})
+@app.route('/health/<name>')
+def health(name):
+    return f"'Hello': {name}"
 
 @app.errorhandler(404)
 def not_found(error):
