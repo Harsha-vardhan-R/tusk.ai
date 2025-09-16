@@ -13,8 +13,7 @@
       "default_title": "tusk.ai"
     },
     "background": {
-      "scripts": ["background.js"],
-      "persistent": false
+      "scripts": ["background.js"]
     },
     "content_scripts": [
       {
@@ -24,7 +23,7 @@
     ],
     "web_accessible_resources": [
       {
-        "resources": ["*.js", "*.css"],
+        "resources": ["../log.html", "*.js", "*.css"],
         "matches": ["<all_urls>"]
       }
     ]
