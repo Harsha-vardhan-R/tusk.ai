@@ -13,6 +13,10 @@
 /frontend/dist-ssr
 /frontend/*.local
 
+/backend/chroma/
+/backend/__pycache__
+/backend/.ipynb_checkpoints/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

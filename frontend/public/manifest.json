@@ -23,7 +23,7 @@
     ],
     "web_accessible_resources": [
       {
-        "resources": ["../log.html", "*.js", "*.css"],
+        "resources": ["*.js", "*.css"],
         "matches": ["<all_urls>"]
       }
     ]

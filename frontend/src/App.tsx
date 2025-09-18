@@ -46,8 +46,6 @@ function App() {
     // background for saving.
     useEffect(() => {
         const handler = () => {
-            console.log("called");
-            console.log(promptState);
             browser.runtime.sendMessage({
                 action: 'SET_STATE',
                 payload: {
@@ -67,25 +65,36 @@ function App() {
     }, [promptState, buttonState, outputState, tabIdConst]);
 
     useEffect(() => {
-        if (buttonState === 'idle') {
-            // Previous state was generate, so either interrupted or task completed.
-        } else {
-            // Prompt button pressed.
+        if (buttonState === 'generate')  { // prev state idle.
+            browser.runtime.sendMessage({
+                action: 'PROMPT',
+                payload: {
+                    tabID: tabIdConst,
+                    prompt: promptState
+                }
+            }).then(
+                response => {
+                    if (response.success === true) {
+                        setOutputState(response.output!);
+                    } else {
+                        setOutputState(response.error);
+                    }
+                    setButtonState('idle');
+                }
+            );
         }
     }, [buttonState]);
 
 
     const openLogsPage = () => {
-        console.log("enter");
         browser.runtime.sendMessage({action : 'OPEN_LOG'});
     }
 
     const PrmptButtonClicked = () => {
         if (buttonState === 'idle') {
+            if (promptState === '') return;
             setButtonState('generate');
-        } else {
-            setButtonState('idle');
-        }
+        } // will be reset when a response is sent from the backend.
     }
 
     return (

@@ -3,6 +3,11 @@
 
 import type { Message, custResponse, State } from "../types.ts";
 
+const endpoint = 'http://127.0.0.1:5000/prompt'
+
+let GlobalLog : string = '';
+const TabStates = new Map<number, State>();
+
 // Makes sure the message is valid;
 function isMessage(obj: unknown): obj is Message {
     return (
@@ -21,7 +26,7 @@ browser.runtime.onMessage.addListener((
     sendResponse: (response : custResponse | string | State) => void
 ) : boolean => {
 
-    GlobalLog.concat(
+    GlobalLog = GlobalLog.concat(
         getTimeStamp(),
         " [POPUP -> BACKGROUND]",
         ' Message : ',
@@ -30,7 +35,7 @@ browser.runtime.onMessage.addListener((
     );
 
     if (!isMessage(message)) {
-        GlobalLog.concat(
+        GlobalLog = GlobalLog.concat(
             getTimeStamp(),
             " [ERROR] Failed to understand message",
             String(message),
@@ -41,18 +46,44 @@ browser.runtime.onMessage.addListener((
     
     if (message.action === 'GET_STATE') {
         const tabID = message.payload!.tabID!;
-        console.log(tabID);
         Promise.resolve(getState(tabID)).then(sendResponse);
         return true;
     } else if (message.action === 'OPEN_LOG') {
         openLogs();
         return false;
     } else if (message.action === 'PROMPT') {
+        const tabID = message.payload!.tabID!;
+        (async () => {
+            try {
 
-        return true;
+                browser.tabs.sendMessage(tabID, { action: "GET_HTML" })
+                .then(html => fetch(endpoint, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt: message.payload!.prompt!, context: html }),
+                }))
+                .then(raw => raw.json())
+                .then(data => sendResponse(data))
+                .catch(err => {
+                    console.error("Failed to get HTML or fetch:", err);
+                          sendResponse({
+                              success: false,
+                              error: err instanceof Error ? err.message : String(err),
+                          } as custResponse);
+                });
+
+            } catch (err) {
+                console.error("Failed to get HTML or fetch:", err);
+                sendResponse({
+                    success: false,
+                    error: err instanceof Error ? err.message : String(err),
+                } as custResponse);
+            }
+        })();
+
+        return true;    
     } else if (message.action === 'SET_STATE') {
         const tabID = message.payload!.tabID!;
-        console.log(tabID);
         const newState : State = {
             prompt : message.payload!.prompt!,
             button : message.payload!.button!,
@@ -63,7 +94,7 @@ browser.runtime.onMessage.addListener((
         return false;
     }
 
-    GlobalLog.concat(
+    GlobalLog = GlobalLog.concat(
         getTimeStamp(),
         " [ERROR] Unknown action, tabid : ",
         String(message),
@@ -73,9 +104,6 @@ browser.runtime.onMessage.addListener((
     return false;
 
 });
-
-let GlobalLog : string = 'avbauvybaufvyba';
-let TabStates = new Map<number, State>();
 
 function getTimeStamp() : string {
     return new Date().toISOString();
@@ -100,15 +128,13 @@ function getState(tabID : number) : State {
             initState
         );
 
-        GlobalLog.concat(getTimeStamp(), " [NEW TAB STATE], tabid : ", String(tabID), " Created\n");
+        GlobalLog = GlobalLog.concat(getTimeStamp(), " [NEW TAB STATE], tabid : ", String(tabID), " Created\n");
     }
 
     return TabStates.get(tabID)!;
 }
 
 async function openLogs() {
-    const encoded = encodeURIComponent(GlobalLog);
-    const url = browser.runtime.getURL(`log.html?data=${encoded}`);
-    await browser.tabs.create({ url });
+    console.log(GlobalLog);
 } 
 
