@@ -19,27 +19,25 @@ function App() {
         })();
     }, []);
 
+    const fetchState = async () => {
+        if (tabIdConst === null) return;
+        try {
+            const raw = await browser.runtime.sendMessage({
+                action: "GET_STATE",
+                payload: { tabID: tabIdConst },
+            });
+            const state = raw as State;
+            console.log("Successfully fetched state", state);
+            setButtonState(state.button);
+            setPromptState(state.prompt);
+            setOutputState(state.output);
+        } catch (error) {
+            console.error("Failed to fetch state:", error);
+        }
+    };
+
     useEffect(() => {
-        if (tabIdConst === null || tabIdConst === undefined) return; // Wait until tabId is available
-
-        (async () => {
-            try {
-                const raw = await browser.runtime.sendMessage({
-                    action: "GET_STATE",
-                    payload: { 
-                        tabID : tabIdConst 
-                    },
-                });
-                const state = raw as State;
-                console.log("Successfully fetched state", state);
-
-                setButtonState(state.button);
-                setPromptState(state.prompt);
-                setOutputState(state.output);
-            } catch (error) {
-                console.error("Failed to fetch state:", error);
-            }
-        })();
+        fetchState();
     }, [tabIdConst]);
 
     // Before the popup closes send the state back to 
@@ -73,13 +71,8 @@ function App() {
                     prompt: promptState
                 }
             }).then(
-                response => {
-                    if (response.success === true) {
-                        setOutputState(response.output!);
-                    } else {
-                        setOutputState(response.error);
-                    }
-                    setButtonState('idle');
+                _ => {
+                    fetchState();
                 }
             );
         }

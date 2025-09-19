@@ -27,7 +27,12 @@ def generateOutput():
     prompt = data.get("prompt")
     context = data.get("context")
 
-    return rag_pipeline(context, prompt)
+    result = rag_pipeline(context, prompt)
+
+    return jsonify({
+        "success": True,
+        "response": result
+    })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False)

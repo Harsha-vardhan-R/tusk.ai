@@ -54,31 +54,27 @@ browser.runtime.onMessage.addListener((
     } else if (message.action === 'PROMPT') {
         const tabID = message.payload!.tabID!;
         (async () => {
-            try {
 
-                browser.tabs.sendMessage(tabID, { action: "GET_HTML" })
-                .then(html => fetch(endpoint, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt: message.payload!.prompt!, context: html }),
-                }))
-                .then(raw => raw.json())
-                .then(data => sendResponse(data))
-                .catch(err => {
-                    console.error("Failed to get HTML or fetch:", err);
-                          sendResponse({
-                              success: false,
-                              error: err instanceof Error ? err.message : String(err),
-                          } as custResponse);
-                });
-
-            } catch (err) {
+            browser.tabs.sendMessage(tabID, { action: "GET_HTML" })
+            .then(html => fetch(endpoint, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: message.payload!.prompt!, context: html }),
+            }))
+            .then(raw => raw.json())
+            .then(data => {
+                TabStates.get(tabID)!.output = data.response!;
+                TabStates.get(tabID)!.button = 'idle';
+                sendResponse("update bro");
+            })
+            .catch(err => {
                 console.error("Failed to get HTML or fetch:", err);
                 sendResponse({
                     success: false,
                     error: err instanceof Error ? err.message : String(err),
                 } as custResponse);
-            }
+            });
+
         })();
 
         return true;    

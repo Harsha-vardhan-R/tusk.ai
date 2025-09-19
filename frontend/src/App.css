@@ -54,6 +54,8 @@
   display: flex;
   width: 100%;
   box-sizing: border-box;
+  min-height: 120px;
+  max-height: 120px;
 }
 
 .prompt {
@@ -136,12 +138,16 @@
 }
 
 .output {
+  font-size: 12px;
   background-color: lightgray;
   padding: 10px;
-  color: darkgrey;
+  color: black;
   margin-top: 10px;
   margin-bottom: 10px;
-  display: flex;
+  
+  overflow-y: auto;  
+  white-space: pre-wrap;
+  flex-direction: column;
 }
 
 .titleBar {
@@ -174,7 +180,7 @@
   color: #414141;
   position: absolute;
   left: 15px;
-  bottom: 10px;
+  bottom: 5px;
 }
 
 .but {

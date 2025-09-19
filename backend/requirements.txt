@@ -5,5 +5,5 @@ langchain_community
 langchainhub 
 tiktoken
 sentence-transformers
-chromadb
+chromadb==0.4.24
 requests

@@ -1,8 +1,9 @@
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import SentenceTransformerEmbeddings
+from langchain.schema import Document
+from langchain_community.embeddings import OllamaEmbeddings
 from bs4 import BeautifulSoup
 import tiktoken
-from langchain.schema import Document
 import requests
 
 def chunkIt(html_content, max_size=400, overlap=100):
@@ -84,7 +85,10 @@ def chunkIt(html_content, max_size=400, overlap=100):
 # search on the plain text and work with html documents.
 class DualRepresentationVectorDB:
     def __init__(self, p_d='./chroma'):
-        self.embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.embeddings = OllamaEmbeddings(
+            base_url="http://localhost:11434",
+            model="mxbai-embed-large"
+        )
         self.vectorstore = None
         self.persist_directory = p_d
 
@@ -174,10 +178,14 @@ def llm(sys, prompt):
             {"role": "user", "content": prompt}
         ],
         "temperature": 0,
-        "max_tokens": 50
+        "max_tokens": 250
     }
     resp = requests.post("http://localhost:11434/v1/chat/completions", json=pr)
-    return resp.json()["choices"][0]["message"]["content"].strip()
+
+    if resp.ok:
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    else:
+        return "Could not connect to LLM"
 
 def question_rewrite(ques):
     q = "You are a smart query rewriter. "\
@@ -201,13 +209,4 @@ def rag_pipeline(html_content: str, raw_query: str) -> str:
         user_prompt
     )
 
-    eval_prompt = (
-        "You are a strict evaluator. Respond TRUE if the answer correctly addresses the question, "
-        "otherwise respond FALSE."
-    )
-    verdict = llm(
-        eval_prompt,
-        f"Question: {rewritten}\nAnswer: {ans}"
-    )
-
-    return ans if verdict.strip().upper() == "TRUE" else "The thing you are searching for is not found"
+    return ans
