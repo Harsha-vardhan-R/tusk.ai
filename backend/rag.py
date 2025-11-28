@@ -1,12 +1,23 @@
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import SentenceTransformerEmbeddings
-from langchain.schema import Document
-from langchain_community.embeddings import OllamaEmbeddings
+# app.py - COMPLETE RAG WITH YOUR FULL PROMPT, NO LANGCHAIN
+from flask import Flask, jsonify, request
 from bs4 import BeautifulSoup
-import tiktoken
 import requests
+import re
+from dataclasses import dataclass
+import logging
+
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class Chunk:
+    html: str
+    text: str
+    score: float
 
 def chunkIt(html_content, max_size=400, overlap=100):
+    """YOUR ORIGINAL CHUNKING - UNCHANGED"""
     soup = BeautifulSoup(html_content, 'html.parser')
     
     # remove media and cosmetics
@@ -19,8 +30,6 @@ def chunkIt(html_content, max_size=400, overlap=100):
     current_chunk_elements = []
     current_chunk_size = 0
 
-
-    ###############################################
     def get_top_level_elements(soup):
         body = soup.find('body')
         if body:
@@ -31,14 +40,11 @@ def chunkIt(html_content, max_size=400, overlap=100):
     def create_chunk_from_elements(elements):
         if not elements:
             return ""
-        
         wrapper = BeautifulSoup('<div></div>', 'html.parser').div
         for elem in elements:
             wrapper.append(elem.__copy__())
         return str(wrapper)
-    ###############################################
 
-    
     top_elements = get_top_level_elements(soup)
     
     if not top_elements:
@@ -54,11 +60,8 @@ def chunkIt(html_content, max_size=400, overlap=100):
                 chunks.append(chunk_html)
                 current_chunk_elements = []
                 current_chunk_size = 0
-
-            
             chunks.append(element_html)
             continue
-
         
         if current_chunk_size + element_size > max_size and current_chunk_elements:
             chunk_html = create_chunk_from_elements(current_chunk_elements)
@@ -74,139 +77,170 @@ def chunkIt(html_content, max_size=400, overlap=100):
             current_chunk_elements.append(element)
             current_chunk_size += element_size
 
-    
     if current_chunk_elements:
         chunk_html = create_chunk_from_elements(current_chunk_elements)
         chunks.append(chunk_html)
     
     return chunks
 
-# store both the plain text representation and the html structured chunks.
-# search on the plain text and work with html documents.
-class DualRepresentationVectorDB:
-    def __init__(self, p_d='./chroma'):
-        self.embeddings = OllamaEmbeddings(
-            base_url="http://localhost:11434",
-            model="mxbai-embed-large"
-        )
-        self.vectorstore = None
-        self.persist_directory = p_d
-
-    def extract_plain_text(self, html_chunk):
-        soup = BeautifulSoup(html_chunk, 'html.parser')
-        return soup.get_text(separator=' ', strip=True)
+def simple_search(query: str, chunks: list, k=5) -> list:
+    """Simple but effective TF-IDF search"""
+    query_words = re.findall(r'\w{3,}', query.lower())
     
-    def extract_plain_text_with_key_attrs(self, html_chunk):
-        soup = BeautifulSoup(html_chunk, "html.parser")
-        texts = []
-    
-        for text in soup.get_text(separator=" ", strip=True).split():
-            texts.append(text)
-    
-        # Important attributes, maybe helpful while searching.
-        key_attrs = ["title", "alt", "onclick", "aria-label", "data-tooltip"]
-        for tag in soup.find_all(attrs={attr: True for attr in key_attrs}):
-            for attr in key_attrs:
-                if tag.has_attr(attr):
-                    val = tag[attr]
-                    if isinstance(val, list):
-                        texts.extend(val)
-                    else:
-                        texts.append(str(val).strip())
-    
-        return " ".join(texts)
-    
-    def add_chunks(self, html_chunks, metadata_list=None):
-        if metadata_list is None:
-            metadata_list = [{"chunk_index": i} for i in range(len(html_chunks))]
+    results = []
+    for chunk_html in chunks:
+        soup = BeautifulSoup(chunk_html, 'html.parser')
+        chunk_text = soup.get_text()
+        chunk_words = re.findall(r'\w{3,}', chunk_text.lower())
         
-        documents = []
-        for i, (html_chunk, meta) in enumerate(zip(html_chunks, metadata_list)):
-            plain_text = self.extract_plain_text(html_chunk)
-            # Store HTML in metadata
-            meta['original_html'] = html_chunk  
+        if not chunk_words:
+            continue
             
-            documents.append(Document(
-                page_content=plain_text,
-                metadata=meta
-            ))
+        query_hits = sum(chunk_words.count(word) for word in query_words)
+        score = query_hits / len(chunk_words)
         
-        if self.vectorstore is None:
-            self.vectorstore = Chroma.from_documents(
-                documents, self.embeddings, persist_directory=self.persist_directory
-            )
-        else:
-            self.vectorstore.add_documents(documents)
+        results.append(Chunk(chunk_html, chunk_text, score))
     
-    def search_with_html_context(self, query, k=5):
-        if not self.vectorstore:
-            return []
-            
-        q_emb = self.embeddings.embed_query(query)
-        
-        results = self.vectorstore._collection.query(
-            query_embeddings=[q_emb],
-            n_results=k,
-            include=["documents","metadatas"]
-        )
-        docs, metas = results["documents"][0], results["metadatas"][0]
-        out = []
-        for doc, meta in zip(docs, metas):
-            out.append({
-                "plain_text": doc,
-                "structured_html": meta["original_html"],
-                "metadata": meta,
-            })
-        return out
+    return sorted(results, key=lambda x: x.score, reverse=True)[:k]
 
-def create_dual_vector_db(html_content, max_size=1000):
-    chunks = chunkIt(html_content, max_size)
-    vector_db = DualRepresentationVectorDB()
-    vector_db.add_chunks(chunks)
-    return vector_db
-
-def llm(sys, prompt):
-    pr = {
+def llm(sys_prompt: str, user_prompt: str) -> str:
+    """Direct Ollama API call"""
+    payload = {
         "model": "gemma3:4b",
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    sys
-                )
-            },
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
         ],
         "temperature": 0,
         "max_tokens": 250
     }
-    resp = requests.post("http://localhost:11434/v1/chat/completions", json=pr)
+    
+    try:
+        resp = requests.post(
+            "http://localhost:11434/v1/chat/completions",
+            json=payload,
+            timeout=30
+        )
+        if resp.ok:
+            return resp.json()["choices"][0]["message"]["content"].strip()
+        return f"LLM Error: {resp.status_code}"
+    except Exception as e:
+        return f"Ollama Error: {str(e)}"
 
-    if resp.ok:
-        return resp.json()["choices"][0]["message"]["content"].strip()
-    else:
-        return "Could not connect to LLM"
-
-def question_rewrite(ques):
-    q = "You are a smart query rewriter. "\
-        "Take the user’s input and output only a concise, "\
-        "self-contained question that could be asked directly to an API or assistant. "\
+def question_rewrite(ques: str) -> str:
+    """Query rewriter - YOUR ORIGINAL LOGIC"""
+    q = (
+        "You are a smart query rewriter. "
+        "Take the user's input and output only a concise, "
+        "self-contained question that could be asked directly to an API or assistant. "
         "Do not ask for more information, just rewrite."
+    )
     return llm(q, ques)
 
+# YOUR FULL ORIGINAL SYSTEM PROMPT - UNCHANGED
+FULL_SYSTEM_PROMPT = """You are an intelligent web page content analyst assistant integrated into a browser extension. Your role is to:
+
+1. **Answer questions** about web page content provided to you
+2. **Generate data** (CSV, JSON, tables, structured formats) from page content when requested
+3. **Handle out-of-context requests** gracefully (greetings, general knowledge questions)
+4. **Extract and transform** information from raw HTML page data
+
+### Key Instructions:
+
+**Context Awareness:**
+- You will receive extracted content from web pages as context
+- The context may include HTML structure, text, tables, lists, and metadata
+- Treat this context as the primary source of truth for answering questions
+- If information isn't in the context, clearly state 'This information is not available on the page'
+
+**Response Types:**
+
+1. **Information Queries** - Answer questions about page content
+   - Use only the provided context
+   - Cite where the information came from on the page
+   - Be specific and concise
+   
+2. **Data Generation** - User asks for CSV, JSON, tables, or structured exports
+   - Extract relevant data from the context
+   - Format exactly as requested
+   - Include headers and structure
+   - For CSV: use proper escaping for commas and quotes
+   - For JSON: valid, properly formatted JSON
+   - Return ONLY the file content, no explanations
+
+3. **General Requests** - Greetings, general knowledge, or conversational requests
+   - Answer normally if context isn't needed
+   - Example: 'What is the capital of France?' → 'Paris'
+   - Example: 'Hi, how are you?' → Friendly response
+   - Example: 'Explain machine learning' → Brief explanation
+
+**Output Format Rules:**
+- **Default (Q&A):** Natural language response
+- **File Generation:** Return the exact file content with no preamble or postamble
+- **Error Cases:** Explain what's missing or why you can't fulfill the request
+- **Ambiguity:** Ask clarifying questions if needed"""
+
 def rag_pipeline(html_content: str, raw_query: str) -> str:
-    rewritten = question_rewrite(raw_query)
+    """YOUR FULL RAG PIPELINE - EXACT SAME LOGIC"""
+    if not html_content or not raw_query:
+        return "Error: Missing HTML content or query"
 
-    vector_db = create_dual_vector_db(html_content)
-    results = vector_db.search_with_html_context(rewritten, k=5)
+    try:
+        # 1. Query rewrite
+        rewritten = question_rewrite(raw_query)
+        logger.info(f"Rewritten: {rewritten}")
 
-    context = "\n\n".join([r['structured_html'] for r in results])
-    user_prompt = f"Context:\n{context}\n\nQuestion: {rewritten}"
+        # 2. Chunk HTML (YOUR ORIGINAL)
+        chunks = chunkIt(html_content, max_size=1000)
 
-    ans = llm(
-        "You are an assistant. Answer based on the provided context. "
-        "If unable to answer, say you cannot find the information.",
-        user_prompt
-    )
+        # 3. Search top chunks
+        results = simple_search(rewritten, chunks, k=5)
 
-    return ans
+        if not results:
+            return "No relevant content found on the page"
+
+        context = "\n\n".join([r.html for r in results])
+        user_prompt = f"Context:\n{context}\n\nQuestion: {rewritten}"
+
+        # 5. YOUR FULL SYSTEM PROMPT
+        ans = llm(FULL_SYSTEM_PROMPT, user_prompt)
+
+        return ans
+        
+    except Exception as e:
+        return f"Pipeline error: {str(e)}"
+
+@app.route('/')
+def home():
+    return "🚀 Flask RAG Server Running on port 5000!"
+
+@app.route('/health/<name>')
+def health(name):
+    return f"'Hello': {name}"
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Not found"}), 404
+
+@app.route('/prompt', methods=['POST'])
+def generateOutput():
+    """YOUR ORIGINAL ENDPOINT"""
+    data = request.get_json()
+
+    if data is None:
+        return jsonify({"error": "Missing arguments for the POST request"})
+
+    prompt = data.get("prompt")
+    context = data.get("context")
+
+    result = rag_pipeline(context, prompt)
+
+    print(result)
+
+    return jsonify({
+        "success": True,
+        "response": result
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)

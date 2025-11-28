@@ -1,9 +1,10 @@
 flask
 langchain
+langchain-core
 langchain-openai
 langchain_community
 langchainhub 
 tiktoken
 sentence-transformers
-chromadb==0.4.24
+faiss-cpu
 requests

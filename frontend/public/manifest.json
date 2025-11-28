@@ -6,7 +6,8 @@
     "permissions": [
       "activeTab",
       "scripting",
-      "storage"
+      "storage",
+      "http://127.0.0.1/*"
     ],
     "action": {
       "default_popup": "popup.html",
